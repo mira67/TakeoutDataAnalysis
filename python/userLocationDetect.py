@@ -3,7 +3,6 @@
 #Email: qliu.hit@gmail.com
 
 import ctypes
-import os
 import sys
 import time
 
@@ -23,20 +22,17 @@ import psycopg2
 import pandas as pd
 
 import matplotlib.pyplot as plt
-import matplotlib.cm
- 
 from mpl_toolkits.basemap import Basemap
-from matplotlib.patches import Polygon
-from matplotlib.collections import PatchCollection
-from matplotlib.colors import Normalize
 
 #import method
 import numpy as np
 from sklearn.cluster import DBSCAN
-from sklearn import metrics
 import multiprocessing as mp
 
-path = 'E:/myprojects/takeout/code/'
+import csv
+
+path = 'E:/myprojects/takeout/code/python/'
+Outpath = 'E:/myprojects/takeout/results/locations_detection_1.0eps_nn2/'
 
 #connect to database and get cursor
 try:
@@ -56,8 +52,51 @@ GROUP BY rates.shop_id, shops.wgs_lat, shops.wgs_lon
 ORDER BY sfreq;
 """
 
+sql_feature = """
+SELECT 
+    shop_id,
+    sum(case when dayOfweek between 1 and 5 then 1 else 0 end) as weekday,
+    sum(case when dayOfweek = 6 then 1 else 0 end) as saturday,
+    sum(case when dayOfweek = 0 then 1 else 0 end) as sunday,
+    sum(case when hourOfday = 0 then 1 else 0 end) as h00,
+    sum(case when hourOfday = 1 then 1 else 0 end) as h01,
+    sum(case when hourOfday = 2 then 1 else 0 end) as h02,
+    sum(case when hourOfday = 3 then 1 else 0 end) as h03,
+    sum(case when hourOfday = 4 then 1 else 0 end) as h04,
+    sum(case when hourOfday = 5 then 1 else 0 end) as h05,
+    sum(case when hourOfday = 6 then 1 else 0 end) as h06,
+    sum(case when hourOfday = 7 then 1 else 0 end) as h07,
+    sum(case when hourOfday = 8 then 1 else 0 end) as h08,
+    sum(case when hourOfday = 9 then 1 else 0 end) as h09,
+    sum(case when hourOfday = 10 then 1 else 0 end) as h10,
+    sum(case when hourOfday = 11 then 1 else 0 end) as h11,
+    sum(case when hourOfday = 12 then 1 else 0 end) as h12,
+    sum(case when hourOfday = 13 then 1 else 0 end) as h13,
+    sum(case when hourOfday = 14 then 1 else 0 end) as h14,
+    sum(case when hourOfday = 15 then 1 else 0 end) as h15,
+    sum(case when hourOfday = 16 then 1 else 0 end) as h16,
+    sum(case when hourOfday = 17 then 1 else 0 end) as h17,
+    sum(case when hourOfday = 18 then 1 else 0 end) as h18,
+    sum(case when hourOfday = 19 then 1 else 0 end) as h19,
+    sum(case when hourOfday = 20 then 1 else 0 end) as h20,
+    sum(case when hourOfday = 21 then 1 else 0 end) as h21,
+    sum(case when hourOfday = 22 then 1 else 0 end) as h22,
+    sum(case when hourOfday = 23 then 1 else 0 end) as h23,
+    pass_uid
+FROM
+    baidu_takeout_temporal
+WHERE pass_uid = %(user_id)s
+GROUP BY 
+    shop_id, pass_uid
+ORDER BY shop_id
+"""
+
+"""Configurations"""
 kms_per_radian = 6371.0088
-epsilon = 3.5 / kms_per_radian
+epsilon = 1.5 / kms_per_radian
+
+feature_columns = ['weekday','saturday','sunday','h00','h01','h02','h03','h04','h05','h06','h07','h08','h09','h10','h11',
+'h12','h13','h14','h15','h16','h17','h18','h19','h20','h21','h22','h23','user_id']
 
 def patternDetection(user):
     #get user data, str(user)
@@ -68,9 +107,9 @@ def patternDetection(user):
         print "I am not able to query!"
         
     res = np.array(rows, dtype=np.float)
+    shopList = res[:,0]
     #detect locations
     X = res[:,3:5]
-    print type(X)
     
     db = DBSCAN(eps=epsilon, min_samples=2, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
     core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
@@ -78,11 +117,50 @@ def patternDetection(user):
     labels = db.labels_
     # Number of clusters in labels, ignoring noise if present.
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-    print('Estimated number of clusters: %d' % n_clusters)
-    #plot
-    plotResult(user,labels, X, core_samples_mask, n_clusters)
+   
+    #"""plot and save figure"""
+    #plotResult(user,labels, X, core_samples_mask, n_clusters)
+    
+    """extract pattern features"""
+    patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
                 
     print 'ok'
+
+#extract temporal features for each pattern    
+def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
+    #obtain feature list for one pattern, attach user_id information + features + shop_id
+    try:
+        cur.execute(sql_feature, {'user_id': str(user)})
+        rows = cur.fetchall() 
+    except:
+        print "I am not able to query!"
+        
+    features = np.array(rows, dtype=np.float)
+    #aggregate for each cluster
+    for nc in range(0,n_clusters):
+        #pattern_id increase
+        class_member_mask = (labels == nc)
+        pattern = features[class_member_mask & core_samples_mask]
+        #record shop list for each pattern
+        shop_list = pattern[:,0]
+        nshop = len(shop_list)
+        with open(path+'pattern_shoplist.csv','a') as f_handle:
+            np.savetxt(f_handle, shop_list.reshape((1,nshop)), delimiter=',')
+        
+        pattern_feature = np.sum(pattern[:,1:28], axis=0)
+        #scale columns to ratio
+        total = np.sum(pattern_feature[0:3])
+        pattern_feature = pattern_feature/total
+        pattern_feature = np.append(pattern_feature,int(user))
+        #add user_id to end and record to file
+        with open(path+'pattern_features.csv','a') as f_handle:
+            np.savetxt(f_handle, pattern_feature.reshape((1,28)), delimiter=',')
+    print 'Come on!'
+    
+def patternClustering(pattern):
+    #read in features from database for all patterns and cluster
+    
+    print 'Just Do It!'
     
 def plotResult(user,labels, X, core_samples_mask, n_clusters):
     # Black removed and is used for noise instead.
@@ -98,7 +176,7 @@ def plotResult(user,labels, X, core_samples_mask, n_clusters):
     m.readshapefile(path+'roads', 'bjroads')
     
     x, y = m(X[:,1], X[:,0])
-    size = 5
+
     #m.plot(x, y, 'o', markersize=size, color='#f45642', alpha=0.8)
     
     unique_labels = set(labels)
@@ -123,21 +201,21 @@ def plotResult(user,labels, X, core_samples_mask, n_clusters):
     plt.title('Estimated number of clusters: %d' % n_clusters)
     #plt.show()
     
-    plt.savefig(path+'/locations_detection/'+user+'_dbscan.png',bbox_inches='tight')
+    plt.savefig(Outpath+user+'_dbscan.png',bbox_inches='tight')
     plt.close()
         
     
 if __name__ == '__main__':
         
-    print 'Running Local Stage...'
+    print 'Running pattern...'
     users = pd.read_excel(path+'topusers.xlsx'); 
     userList = users['user'].tolist()
     userList = map(str, userList)#seems only string list works for pool map
 
     #profiling 1
     start = time.time()
-    #patternDetection('3337871')
-    pool = mp.Pool(1)
+    #patternDetection('48801499')
+    pool = mp.Pool(4)
     results = pool.map(patternDetection, userList)
     
     end = time.time()
