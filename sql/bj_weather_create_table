@@ -1,0 +1,13 @@
+CREATE TABLE bj_weather (
+  datetime timestamp DEFAULT NULL, 
+  rawdate varchar DEFAULT NULL,
+  stationID numeric DEFAULT NULL,
+  lat numeric DEFAULT NULL,
+  lon numeric DEFAULT NULL,
+  temperature numeric DEFAULT NULL,
+  wind_dir numeric DEFAULT NULL,
+  wind_spd numeric DEFAULT NULL,
+  visibility numeric DEFAULT NULL,
+  rain24hr numeric DEFAULT NULL
+);
+COPY bj_weather FROM 'C:\Users\AA_LQ\Downloads\beijing2.csv' CSV HEADER;

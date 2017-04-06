@@ -1,0 +1,1 @@
+COPY bj_eleme_rates_daily_aq TO 'E:\myprojects\takeout\bj_eleme_rates_daily_aq.csv' DELIMITER ',' CSV HEADER;
