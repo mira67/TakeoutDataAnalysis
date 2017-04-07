@@ -93,7 +93,7 @@ ORDER BY shop_id
 
 """Configurations"""
 kms_per_radian = 6371.0088
-epsilon = 1.5 / kms_per_radian
+epsilon = 3.0 / kms_per_radian
 
 feature_columns = ['weekday','saturday','sunday','h00','h01','h02','h03','h04','h05','h06','h07','h08','h09','h10','h11',
 'h12','h13','h14','h15','h16','h17','h18','h19','h20','h21','h22','h23','user_id']
@@ -143,6 +143,8 @@ def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
         pattern = features[class_member_mask & core_samples_mask]
         #record shop list for each pattern
         shop_list = pattern[:,0]
+        shop_list = np.insert(shop_list,0,int(user))
+        shop_list = np.insert(shop_list,0,int(user)*100+nc)
         nshop = len(shop_list)
         with open(path+'pattern_shoplist.csv','a') as f_handle:
             np.savetxt(f_handle, shop_list.reshape((1,nshop)), delimiter=',')
@@ -152,13 +154,17 @@ def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
         total = np.sum(pattern_feature[0:3])
         pattern_feature = pattern_feature/total
         pattern_feature = np.append(pattern_feature,int(user))
+        pattern_feature = np.append(pattern_feature,int(user)*100+nc)
+        nfea = len(pattern_feature)
         #add user_id to end and record to file
         with open(path+'pattern_features.csv','a') as f_handle:
-            np.savetxt(f_handle, pattern_feature.reshape((1,28)), delimiter=',')
+            np.savetxt(f_handle, pattern_feature.reshape((1,nfea)), delimiter=',')
     print 'Come on!'
     
 def patternClustering(pattern):
     #read in features from database for all patterns and cluster
+    #BIC to determine the proper number of clusters
+    
     
     print 'Just Do It!'
     
@@ -214,9 +220,9 @@ if __name__ == '__main__':
 
     #profiling 1
     start = time.time()
-    #patternDetection('48801499')
-    pool = mp.Pool(4)
-    results = pool.map(patternDetection, userList)
+    patternDetection('48801499')
+    #pool = mp.Pool(4)
+    #results = pool.map(patternDetection, userList)
     
     end = time.time()
     runtime = end - start
