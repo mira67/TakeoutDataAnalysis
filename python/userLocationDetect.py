@@ -28,6 +28,8 @@ from mpl_toolkits.basemap import Basemap
 import numpy as np
 from sklearn.cluster import DBSCAN
 import multiprocessing as mp
+from sklearn.neighbors import NearestNeighbors
+from sklearn.cluster import KMeans
 
 import csv
 
@@ -115,9 +117,9 @@ def patternDetection(user):
     
     if dbscan == 1:
         #detect locations
-        X = np.float64(res[:,3:5])#shop visited times and average delivery time
+        X = np.float64(res[:,3:5])
         
-        db = DBSCAN(eps=epsilon, min_samples=2, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
+        db = DBSCAN(eps=epsilon, min_samples=3, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
         core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
         core_samples_mask[db.core_sample_indices_] = True
         labels = db.labels_
@@ -125,22 +127,54 @@ def patternDetection(user):
         n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
     
         #"""plot and save figure"""
-        plotResult(user,labels, X, core_samples_mask, n_clusters)
+        plotResult(user,labels, X, core_samples_mask, n_clusters, 0)
         
         """extract pattern features"""
-        patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
+        #patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
     
     if hybrid ==1:
         #detect locations
-        X = np.float64(res[:,3:5])#shop visited times and average delivery time
+        X = np.float64(res[:,3:5])#spatial attribute
+        #auto-determine eps
+        nbrs = NearestNeighbors(n_neighbors=3, algorithm='auto',metric='haversine').fit(np.radians(X))
+        distances, indices = nbrs.kneighbors(np.radians(X))
+        realDistance =  distances*kms_per_radian
+        Eps = np.percentile(realDistance[:,2],95.45)
+        epsilon = Eps / kms_per_radian
         
-        db = DBSCAN(eps=epsilon, min_samples=2, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
+        db = DBSCAN(eps=epsilon, min_samples=3, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
         core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
         core_samples_mask[db.core_sample_indices_] = True
         labels = db.labels_
         # Number of clusters in labels, ignoring noise if present.
         n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-                
+        
+        #kmeans to locate centroid and compute center to center distance as profile attributes
+        hubCenters = np.zeros((n_clusters, 3))#lat, lon, avg delivery time
+        
+        #for each hub, using kmeans to determine the centroid
+        for nc in range(0,n_clusters):
+            class_member_mask = (labels == nc)
+            hubData = res[class_member_mask & core_samples_mask]
+            hubFeature = np.float64(hubData[:,1:3])#review count & delivery time
+            hubLocation = np.float64(hubData[:,3:5])
+            #apply K-Means, assume only noise and dense shops, K = 2
+            K = 2
+            km = KMeans(n_clusters=K, random_state=0).fit(hubFeature)
+            kmLabels = km.labels_
+            #pick the cluster center with less delivery time as hub center
+            kmCenters = km.cluster_centers_
+            hubCenterIdx = np.argmin(kmCenters[:,1])
+            hubCenter = kmCenters[hubCenterIdx,:]#delivery and review count center
+            #extract hub center location centroid
+            hubCenterLoc = np.mean(hubLocation[kmLabels == hubCenterIdx],axis = 0)
+            hubCenters[nc,0:2] = hubCenterLoc#assign lat, lon
+            hubCenters[nc,2] = hubCenter[1]#assign delivery time
+            #print 'done'
+            
+        #"""plot and save figure"""
+        plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters)
+         
     print 'ok'
 
 #extract temporal features for each pattern    
@@ -184,7 +218,7 @@ def patternClustering(pattern):
     
     print 'Just Do It!'
     
-def plotResult(user,labels, X, core_samples_mask, n_clusters):
+def plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters):
     # Black removed and is used for noise instead.
     fig, ax = plt.subplots(figsize=(10,20))
     m = Basemap(resolution='c', # c, l, i, h, f or None
@@ -219,6 +253,12 @@ def plotResult(user,labels, X, core_samples_mask, n_clusters):
         x, y = m(xy[:,1], xy[:,0])
         m.plot(x,y, '^', markerfacecolor=col,
                 markeredgecolor='k', markersize=8)
+                
+        #draw hubCenters
+        if k != -1:
+            x,y = m(hubCenters[k,1],hubCenters[k,0])#lat,lon
+            m.plot(x,y, 'X', markerfacecolor='r',
+                markeredgecolor='r', markersize=8)
     
     plt.title('Estimated number of clusters: %d' % n_clusters)
     #plt.show()
@@ -237,7 +277,7 @@ if __name__ == '__main__':
 
     #profiling 1
     start = time.time()
-    #patternDetection('940389912')
+    #patternDetection('61269837')
     pool = mp.Pool(4)
     results = pool.map(patternDetection, userList)
     
