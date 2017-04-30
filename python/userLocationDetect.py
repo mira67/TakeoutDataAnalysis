@@ -32,7 +32,7 @@ import multiprocessing as mp
 import csv
 
 path = 'E:/myprojects/takeout/code/python/'
-Outpath = 'E:/myprojects/takeout/results/locations_detection_1.0eps_nn2/'
+Outpath = 'E:/myprojects/takeout/results/locations_detection_auto_eps_nn2_0430/'
 
 #connect to database and get cursor
 try:
@@ -106,10 +106,10 @@ def patternDetection(user):
     except:
         print "I am not able to query!"
         
-    res = np.array(rows, dtype=np.float)
+    res = np.array(rows)
     shopList = res[:,0]
     #detect locations
-    X = res[:,3:5]
+    X = np.float64(res[:,3:5])#shop visited times and average delivery time
     
     db = DBSCAN(eps=epsilon, min_samples=2, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
     core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
@@ -119,7 +119,7 @@ def patternDetection(user):
     n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
    
     #"""plot and save figure"""
-    #plotResult(user,labels, X, core_samples_mask, n_clusters)
+    plotResult(user,labels, X, core_samples_mask, n_clusters)
     
     """extract pattern features"""
     patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
@@ -142,12 +142,12 @@ def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
         class_member_mask = (labels == nc)
         pattern = features[class_member_mask & core_samples_mask]
         #record shop list for each pattern
-        shop_list = pattern[:,0]
-        shop_list = np.insert(shop_list,0,int(user))
-        shop_list = np.insert(shop_list,0,int(user)*100+nc)
+        shop_list = shopList[class_member_mask & core_samples_mask]
+        shop_list = np.insert(shop_list,0,user)
+        shop_list = np.insert(shop_list,0,user+'00'+str(nc))
         nshop = len(shop_list)
         with open(path+'pattern_shoplist.csv','a') as f_handle:
-            np.savetxt(f_handle, shop_list.reshape((1,nshop)), delimiter=',')
+            np.savetxt(f_handle, shop_list.reshape((1,nshop)), delimiter=',',fmt='%s')
         
         pattern_feature = np.sum(pattern[:,1:28], axis=0)
         #scale columns to ratio
@@ -164,7 +164,6 @@ def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
 def patternClustering(pattern):
     #read in features from database for all patterns and cluster
     #BIC to determine the proper number of clusters
-    
     
     print 'Just Do It!'
     
@@ -214,15 +213,16 @@ def plotResult(user,labels, X, core_samples_mask, n_clusters):
 if __name__ == '__main__':
         
     print 'Running pattern...'
-    users = pd.read_excel(path+'topusers.xlsx'); 
-    userList = users['user'].tolist()
+    users = pd.read_excel(path+'new_dbscan_test_users_0430.xlsx'); 
+    #users = pd.read_csv(path+'baidu_top200_user.csv');
+    userList = users['pass_uid'].tolist()
     userList = map(str, userList)#seems only string list works for pool map
 
     #profiling 1
     start = time.time()
-    patternDetection('48801499')
-    #pool = mp.Pool(4)
-    #results = pool.map(patternDetection, userList)
+    #patternDetection('940389912')
+    pool = mp.Pool(4)
+    results = pool.map(patternDetection, userList)
     
     end = time.time()
     runtime = end - start
