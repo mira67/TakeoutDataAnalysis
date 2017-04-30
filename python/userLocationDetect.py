@@ -98,6 +98,10 @@ epsilon = 3.0 / kms_per_radian
 feature_columns = ['weekday','saturday','sunday','h00','h01','h02','h03','h04','h05','h06','h07','h08','h09','h10','h11',
 'h12','h13','h14','h15','h16','h17','h18','h19','h20','h21','h22','h23','user_id']
 
+#selecting method type: basic dbscan or hybrid method (dbscan + kmeans)
+dbscan = 0
+hybrid = 1#hybrid with auto-determined eps 
+
 def patternDetection(user):
     #get user data, str(user)
     try:
@@ -108,21 +112,34 @@ def patternDetection(user):
         
     res = np.array(rows)
     shopList = res[:,0]
-    #detect locations
-    X = np.float64(res[:,3:5])#shop visited times and average delivery time
     
-    db = DBSCAN(eps=epsilon, min_samples=2, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
-    core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
-    core_samples_mask[db.core_sample_indices_] = True
-    labels = db.labels_
-    # Number of clusters in labels, ignoring noise if present.
-    n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-   
-    #"""plot and save figure"""
-    plotResult(user,labels, X, core_samples_mask, n_clusters)
+    if dbscan == 1:
+        #detect locations
+        X = np.float64(res[:,3:5])#shop visited times and average delivery time
+        
+        db = DBSCAN(eps=epsilon, min_samples=2, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
+        core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
+        core_samples_mask[db.core_sample_indices_] = True
+        labels = db.labels_
+        # Number of clusters in labels, ignoring noise if present.
+        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
     
-    """extract pattern features"""
-    patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
+        #"""plot and save figure"""
+        plotResult(user,labels, X, core_samples_mask, n_clusters)
+        
+        """extract pattern features"""
+        patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
+    
+    if hybrid ==1:
+        #detect locations
+        X = np.float64(res[:,3:5])#shop visited times and average delivery time
+        
+        db = DBSCAN(eps=epsilon, min_samples=2, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
+        core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
+        core_samples_mask[db.core_sample_indices_] = True
+        labels = db.labels_
+        # Number of clusters in labels, ignoring noise if present.
+        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
                 
     print 'ok'
 
