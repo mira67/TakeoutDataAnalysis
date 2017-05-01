@@ -118,7 +118,7 @@ def patternDetection(user):
     if dbscan == 1:
         #detect locations
         X = np.float64(res[:,3:5])
-        
+        epsilon = 3.0 / kms_per_radian
         db = DBSCAN(eps=epsilon, min_samples=3, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
         core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
         core_samples_mask[db.core_sample_indices_] = True
@@ -167,9 +167,15 @@ def patternDetection(user):
                 kmCenters = km.cluster_centers_
                 hubCenterIdx = np.argmin(kmCenters[:,1])
                 hubCenter = kmCenters[hubCenterIdx,:]#delivery and review count center
-                #extract hub center location centroid
-                hubCenterLoc = np.mean(hubLocation[kmLabels == hubCenterIdx],axis = 0)
-                hubCenters[nc,0:2] = hubCenterLoc#assign lat, lon
+                #extract hub center location centroid, calculated weighted centroid
+                hubCenterLocs = hubLocation[kmLabels == hubCenterIdx]
+                hubDeliveryTime = hubFeature[kmLabels == hubCenterIdx,1]
+                tempx = np.divide(hubCenterLocs[:,0],hubDeliveryTime)
+                tempy = np.divide(hubCenterLocs[:,1],hubDeliveryTime)
+                temp = np.sum(np.reciprocal(hubDeliveryTime))
+                x = np.sum(tempx)/temp
+                y = np.sum(tempy)/temp
+                hubCenters[nc,0:2] = np.array([x,y])#assign lat, lon
                 hubCenters[nc,2] = hubCenter[1]#assign delivery time
                 #print 'done'
         except:
@@ -268,7 +274,6 @@ def plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters):
     
     plt.savefig(Outpath+user+'_dbscan.png',bbox_inches='tight')
     plt.close()
-        
     
 if __name__ == '__main__':
         
@@ -281,7 +286,7 @@ if __name__ == '__main__':
     #profiling 1
     start = time.time()
     #patternDetection('61269837')
-    pool = mp.Pool(4)
+    pool = mp.Pool(3)
     results = pool.map(patternDetection, userList)
     
     end = time.time()
