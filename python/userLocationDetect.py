@@ -152,25 +152,28 @@ def patternDetection(user):
         #kmeans to locate centroid and compute center to center distance as profile attributes
         hubCenters = np.zeros((n_clusters, 3))#lat, lon, avg delivery time
         
-        #for each hub, using kmeans to determine the centroid
-        for nc in range(0,n_clusters):
-            class_member_mask = (labels == nc)
-            hubData = res[class_member_mask & core_samples_mask]
-            hubFeature = np.float64(hubData[:,1:3])#review count & delivery time
-            hubLocation = np.float64(hubData[:,3:5])
-            #apply K-Means, assume only noise and dense shops, K = 2
-            K = 2
-            km = KMeans(n_clusters=K, random_state=0).fit(hubFeature)
-            kmLabels = km.labels_
-            #pick the cluster center with less delivery time as hub center
-            kmCenters = km.cluster_centers_
-            hubCenterIdx = np.argmin(kmCenters[:,1])
-            hubCenter = kmCenters[hubCenterIdx,:]#delivery and review count center
-            #extract hub center location centroid
-            hubCenterLoc = np.mean(hubLocation[kmLabels == hubCenterIdx],axis = 0)
-            hubCenters[nc,0:2] = hubCenterLoc#assign lat, lon
-            hubCenters[nc,2] = hubCenter[1]#assign delivery time
-            #print 'done'
+        try:
+            #for each hub, using kmeans to determine the centroid
+            for nc in range(0,n_clusters):
+                class_member_mask = (labels == nc)
+                hubData = res[class_member_mask & core_samples_mask]
+                hubFeature = np.float64(hubData[:,1:3])#review count & delivery time
+                hubLocation = np.float64(hubData[:,3:5])
+                #apply K-Means, assume only noise and dense shops, K = 2
+                K = 2
+                km = KMeans(n_clusters=K, random_state=0).fit(hubFeature)
+                kmLabels = km.labels_
+                #pick the cluster center with less delivery time as hub center
+                kmCenters = km.cluster_centers_
+                hubCenterIdx = np.argmin(kmCenters[:,1])
+                hubCenter = kmCenters[hubCenterIdx,:]#delivery and review count center
+                #extract hub center location centroid
+                hubCenterLoc = np.mean(hubLocation[kmLabels == hubCenterIdx],axis = 0)
+                hubCenters[nc,0:2] = hubCenterLoc#assign lat, lon
+                hubCenters[nc,2] = hubCenter[1]#assign delivery time
+                #print 'done'
+        except:
+            print 'Not able to find hub centers for user: ', user
             
         #"""plot and save figure"""
         plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters)
