@@ -170,6 +170,11 @@ def patternDetection(user):
                 #extract hub center location centroid, calculated weighted centroid
                 hubCenterLocs = hubLocation[kmLabels == hubCenterIdx]
                 hubDeliveryTime = hubFeature[kmLabels == hubCenterIdx,1]
+                #handling zeros bad value
+                tempm = np.mean(hubDeliveryTime[hubDeliveryTime > 0])
+                # Assign the median to the zero elements 
+                hubDeliveryTime[hubDeliveryTime == 0] = tempm
+                
                 tempx = np.divide(hubCenterLocs[:,0],hubDeliveryTime)
                 tempy = np.divide(hubCenterLocs[:,1],hubDeliveryTime)
                 temp = np.sum(np.reciprocal(hubDeliveryTime))
@@ -285,9 +290,9 @@ if __name__ == '__main__':
 
     #profiling 1
     start = time.time()
-    #patternDetection('61269837')
-    pool = mp.Pool(3)
-    results = pool.map(patternDetection, userList)
+    patternDetection('84940513')
+    #pool = mp.Pool(3)
+    #results = pool.map(patternDetection, userList)
     
     end = time.time()
     runtime = end - start
