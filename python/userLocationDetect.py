@@ -30,11 +30,12 @@ from sklearn.cluster import DBSCAN
 import multiprocessing as mp
 from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import KMeans
+from sklearn import metrics
 
 import csv
 
 path = 'E:/myprojects/takeout/code/python/'
-Outpath = 'E:/myprojects/takeout/results/locations_detection_auto_eps_nn2_0430/'
+Outpath = 'E:/myprojects/takeout/results/locations_detection_auto_eps_nn2_0501/'
 
 #connect to database and get cursor
 try:
@@ -47,7 +48,7 @@ cur = conn.cursor()
 
 sql = """
 SELECT rates.shop_id, count(*) as sfreq, avg(to_number(rates.cost_time,'999')), shops.wgs_lat, shops.wgs_lon
-FROM postgres.baidu_takeout_rating as rates
+FROM postgres.baidu_takeout_temporal as rates
 LEFT JOIN baidu_takeout_shops as shops ON shops.shop_id = rates.shop_id 
 WHERE rates.pass_uid = %(user_id)s
 GROUP BY rates.shop_id, shops.wgs_lat, shops.wgs_lon
@@ -106,12 +107,13 @@ hybrid = 1#hybrid with auto-determined eps
 
 def patternDetection(user):
     #get user data, str(user)
-    try:
+    try:    
         cur.execute(sql, {'user_id': str(user)})
         rows = cur.fetchall() 
+        print rows
     except:
         print "I am not able to query!"
-        
+    
     res = np.array(rows)
     shopList = res[:,0]
     
@@ -135,19 +137,23 @@ def patternDetection(user):
     if hybrid ==1:
         #detect locations
         X = np.float64(res[:,3:5])#spatial attribute
+        feaX = np.radians(X)
         #auto-determine eps
-        nbrs = NearestNeighbors(n_neighbors=3, algorithm='auto',metric='haversine').fit(np.radians(X))
-        distances, indices = nbrs.kneighbors(np.radians(X))
+        nbrs = NearestNeighbors(n_neighbors=3, algorithm='auto',metric='haversine').fit(feaX)
+        distances, indices = nbrs.kneighbors(feaX)
         realDistance =  distances*kms_per_radian
         Eps = np.percentile(realDistance[:,2],95.45)
         epsilon = Eps / kms_per_radian
         
-        db = DBSCAN(eps=epsilon, min_samples=3, algorithm='ball_tree', metric='haversine').fit(np.radians(X))
+        db = DBSCAN(eps=epsilon, min_samples=3, algorithm='ball_tree', metric='haversine').fit(feaX)
         core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
         core_samples_mask[db.core_sample_indices_] = True
         labels = db.labels_
         # Number of clusters in labels, ignoring noise if present.
         n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+        
+        # Clustering results evaluation
+        #metrics.silhouette_score(feaX, labels, metric='haversine')
         
         #kmeans to locate centroid and compute center to center distance as profile attributes
         hubCenters = np.zeros((n_clusters, 3))#lat, lon, avg delivery time
@@ -187,15 +193,15 @@ def patternDetection(user):
             print 'Not able to find hub centers for user: ', user
             
         #"""plot and save figure"""
-        plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters)
-         
+        #plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters)
+        patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
     print 'ok'
 
 #extract temporal features for each pattern    
 def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
     #obtain feature list for one pattern, attach user_id information + features + shop_id
     try:
-        cur.execute(sql_feature, {'user_id': str(user)})
+        cur.execute(sql_feature, {'user_id': str(user)})          
         rows = cur.fetchall() 
     except:
         print "I am not able to query!"
@@ -283,14 +289,14 @@ def plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters):
 if __name__ == '__main__':
         
     print 'Running pattern...'
-    users = pd.read_excel(path+'new_dbscan_test_users_0430.xlsx'); 
-    #users = pd.read_csv(path+'baidu_top200_user.csv');
+    #users = pd.read_excel(path+'new_dbscan_test_users_0430.xlsx'); 
+    users = pd.read_csv(path+'baidu_user34.csv');
     userList = users['pass_uid'].tolist()
     userList = map(str, userList)#seems only string list works for pool map
 
     #profiling 1
     start = time.time()
-    patternDetection('84940513')
+    patternDetection('504961316')
     #pool = mp.Pool(3)
     #results = pool.map(patternDetection, userList)
     
