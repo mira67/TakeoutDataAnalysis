@@ -5,6 +5,7 @@
 import ctypes
 import sys
 import time
+import hdbscan
 
 if getattr(sys, 'frozen', False):
   # Override dll search path.
@@ -35,7 +36,10 @@ from sklearn import metrics
 import csv
 
 path = 'E:/myprojects/takeout/code/python/'
-Outpath = 'E:/myprojects/takeout/results/locations_detection_auto_eps_nn2_0501/'
+resPath = 'E:/myprojects/takeout/results/'
+Outpath = 'E:/myprojects/takeout/results/locations_detection_auto_eps95_nn3_0503/'
+patternFile = 'pattern_features_eps95_nn3.csv'
+shopListFile = 'shop_list_eps95_nn3.csv'
 
 #connect to database and get cursor
 try:
@@ -110,13 +114,12 @@ def patternDetection(user):
     try:    
         cur.execute(sql, {'user_id': str(user)})
         rows = cur.fetchall() 
-        print rows
+        res = np.array(rows)
+        shopList = res[:,0]
+        print shopList
     except:
         print "I am not able to query!"
-    
-    res = np.array(rows)
-    shopList = res[:,0]
-    
+        
     if dbscan == 1:
         #detect locations
         X = np.float64(res[:,3:5])
@@ -133,36 +136,40 @@ def patternDetection(user):
         
         """extract pattern features"""
         #patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
-    
+        
     if hybrid ==1:
-        #detect locations
-        X = np.float64(res[:,3:5])#spatial attribute
-        feaX = np.radians(X)
-        #auto-determine eps
-        nbrs = NearestNeighbors(n_neighbors=3, algorithm='auto',metric='haversine').fit(feaX)
-        distances, indices = nbrs.kneighbors(feaX)
-        realDistance =  distances*kms_per_radian
-        Eps = np.percentile(realDistance[:,2],95.45)
-        epsilon = Eps / kms_per_radian
-        
-        db = DBSCAN(eps=epsilon, min_samples=3, algorithm='ball_tree', metric='haversine').fit(feaX)
-        core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
-        core_samples_mask[db.core_sample_indices_] = True
-        labels = db.labels_
-        # Number of clusters in labels, ignoring noise if present.
-        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-        
-        # Clustering results evaluation
-        #metrics.silhouette_score(feaX, labels, metric='haversine')
-        
-        #kmeans to locate centroid and compute center to center distance as profile attributes
-        hubCenters = np.zeros((n_clusters, 3))#lat, lon, avg delivery time
-        
+        nk = 3  
+        epsPercentile = 95      
         try:
+            #detect locations
+            X = np.float64(res[:,3:5])#spatial attribute
+            feaX = np.radians(X)
+
+            #auto-determine eps
+            nbrs = NearestNeighbors(n_neighbors=nk, algorithm='auto',metric='haversine').fit(feaX)
+            distances, indices = nbrs.kneighbors(feaX)
+            realDistance =  distances*kms_per_radian
+            Eps = np.percentile(realDistance[:,nk-1],epsPercentile)
+            
+            epsilon = Eps / kms_per_radian
+    
+            db = DBSCAN(eps=epsilon, min_samples=nk, algorithm='ball_tree', metric='haversine').fit(feaX)
+            core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
+            core_samples_mask[db.core_sample_indices_] = True
+            labels = db.labels_
+            # Number of clusters in labels, ignoring noise if present.
+            n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+            
+            # Clustering results evaluation
+            #metrics.silhouette_score(feaX, labels, metric='haversine')
+            
+            #kmeans to locate centroid and compute center to center distance as profile attributes
+            hubCenters = np.zeros((n_clusters, 4))#lat, lon, center avg delivery time, non-center delivery time
+            
             #for each hub, using kmeans to determine the centroid
             for nc in range(0,n_clusters):
                 class_member_mask = (labels == nc)
-                hubData = res[class_member_mask & core_samples_mask]
+                hubData = res[class_member_mask]
                 hubFeature = np.float64(hubData[:,1:3])#review count & delivery time
                 hubLocation = np.float64(hubData[:,3:5])
                 #apply K-Means, assume only noise and dense shops, K = 2
@@ -173,6 +180,11 @@ def patternDetection(user):
                 kmCenters = km.cluster_centers_
                 hubCenterIdx = np.argmin(kmCenters[:,1])
                 hubCenter = kmCenters[hubCenterIdx,:]#delivery and review count center
+                
+                #get non-center
+                nonCenterIdx = np.argmax(kmCenters[:,1])
+                nonCenter = kmCenters[nonCenterIdx,:]#delivery and review count center
+                
                 #extract hub center location centroid, calculated weighted centroid
                 hubCenterLocs = hubLocation[kmLabels == hubCenterIdx]
                 hubDeliveryTime = hubFeature[kmLabels == hubCenterIdx,1]
@@ -188,17 +200,16 @@ def patternDetection(user):
                 y = np.sum(tempy)/temp
                 hubCenters[nc,0:2] = np.array([x,y])#assign lat, lon
                 hubCenters[nc,2] = hubCenter[1]#assign delivery time
-                #print 'done'
+                hubCenters[nc,3] = nonCenter[1]#assign non-center delivery time        
+            #"""plot and save figure"""
+            plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters)
+            patternFeature(user, shopList, labels, core_samples_mask, n_clusters, hubCenters)
         except:
-            print 'Not able to find hub centers for user: ', user
-            
-        #"""plot and save figure"""
-        #plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters)
-        patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
+            print 'Not able to run for user: ', user
     print 'ok'
 
 #extract temporal features for each pattern    
-def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
+def patternFeature(user, shopList, labels, core_samples_mask, n_clusters, hubCenters):
     #obtain feature list for one pattern, attach user_id information + features + shop_id
     try:
         cur.execute(sql_feature, {'user_id': str(user)})          
@@ -211,13 +222,13 @@ def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
     for nc in range(0,n_clusters):
         #pattern_id increase
         class_member_mask = (labels == nc)
-        pattern = features[class_member_mask & core_samples_mask]
+        pattern = features[class_member_mask]
         #record shop list for each pattern
-        shop_list = shopList[class_member_mask & core_samples_mask]
+        shop_list = shopList[class_member_mask]
         shop_list = np.insert(shop_list,0,user)
         shop_list = np.insert(shop_list,0,user+'00'+str(nc))
         nshop = len(shop_list)
-        with open(path+'pattern_shoplist.csv','a') as f_handle:
+        with open(resPath+shopListFile,'a') as f_handle:
             np.savetxt(f_handle, shop_list.reshape((1,nshop)), delimiter=',',fmt='%s')
         
         pattern_feature = np.sum(pattern[:,1:28], axis=0)
@@ -226,10 +237,12 @@ def patternFeature(user, shopList, labels, core_samples_mask, n_clusters):
         pattern_feature = pattern_feature/total
         pattern_feature = np.append(pattern_feature,int(user))
         pattern_feature = np.append(pattern_feature,int(user)*100+nc)
+        pattern_feature = np.append(pattern_feature,hubCenters[nc,:])
         nfea = len(pattern_feature)
         #add user_id to end and record to file
-        with open(path+'pattern_features.csv','a') as f_handle:
+        with open(resPath+patternFile,'a') as f_handle:
             np.savetxt(f_handle, pattern_feature.reshape((1,nfea)), delimiter=',')
+            #np.savetxt(f_handle, pattern, delimiter=',')
     print 'Come on!'
     
 def patternClustering(pattern):
@@ -240,16 +253,16 @@ def patternClustering(pattern):
     
 def plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters):
     # Black removed and is used for noise instead.
-    fig, ax = plt.subplots(figsize=(10,20))
-    m = Basemap(resolution='c', # c, l, i, h, f or None
+    fig, ax = plt.subplots(figsize=(4,8))
+    m = Basemap(resolution=None, # c, l, i, h, f or None
             projection='merc',
             lat_0=39.905960083, lon_0=116.391242981,
             llcrnrlon=116.185913, llcrnrlat= 39.754713, urcrnrlon=116.552582, urcrnrlat=40.027614)
-    
-    m.drawmapboundary(fill_color='#46bcec')
-    m.fillcontinents(color='#f2f2f2',lake_color='#46bcec')
-    m.drawcoastlines()
-    m.readshapefile(path+'roads', 'bjroads')
+    msize = 5
+    #m.drawmapboundary(fill_color='#46bcec')
+    #m.fillcontinents(color='#f2f2f2',lake_color='#46bcec')
+    #m.drawcoastlines()
+    #m.readshapefile(path+'roads', 'bjroads')
     
     x, y = m(X[:,1], X[:,0])
 
@@ -267,23 +280,23 @@ def plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters):
         xy = X[class_member_mask & core_samples_mask]
         x, y = m(xy[:,1], xy[:,0])
         m.plot(x,y, 'o', markerfacecolor=col,
-                markeredgecolor='k', markersize=10)
+                markeredgecolor='k', markersize=msize)
     
         xy = X[class_member_mask & ~core_samples_mask]
         x, y = m(xy[:,1], xy[:,0])
         m.plot(x,y, '^', markerfacecolor=col,
-                markeredgecolor='k', markersize=8)
+                markeredgecolor='k', markersize=msize)
                 
         #draw hubCenters
         if k != -1:
             x,y = m(hubCenters[k,1],hubCenters[k,0])#lat,lon
             m.plot(x,y, 'X', markerfacecolor='r',
-                markeredgecolor='r', markersize=8)
+                markeredgecolor='r', markersize=msize)
     
     plt.title('Estimated number of clusters: %d' % n_clusters)
     #plt.show()
     
-    plt.savefig(Outpath+user+'_dbscan.png',bbox_inches='tight')
+    plt.savefig(Outpath+user+'_dbscan.png',bbox_inches='tight',dpi=80)
     plt.close()
     
 if __name__ == '__main__':
@@ -296,9 +309,9 @@ if __name__ == '__main__':
 
     #profiling 1
     start = time.time()
-    patternDetection('504961316')
-    #pool = mp.Pool(3)
-    #results = pool.map(patternDetection, userList)
+    #patternDetection('116334310')
+    pool = mp.Pool(4)
+    results = pool.map(patternDetection, userList)
     
     end = time.time()
     runtime = end - start
