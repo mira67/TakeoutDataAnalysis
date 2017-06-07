@@ -32,14 +32,19 @@ import multiprocessing as mp
 from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import KMeans
 from sklearn import metrics
+from sklearn.cluster import MeanShift, estimate_bandwidth
 
 import csv
 
 path = 'E:/myprojects/takeout/code/python/'
 resPath = 'E:/myprojects/takeout/results/'
-Outpath = 'E:/myprojects/takeout/results/locations_detection_auto_eps95_nn3_0503/'
-patternFile = 'pattern_features_eps95_nn3.csv'
-shopListFile = 'shop_list_eps95_nn3.csv'
+Outpath = 'E:/myprojects/takeout/results/locations_detection_eps3km_nn2_0606_extended_data/'
+patternFile = 'pattern_features_0606_extended_data.csv'
+shopListFile = 'shop_list_0606_extended_data.csv'
+
+#hybrid parameter
+nk = 2  
+epsPercentile = 99  
 
 #connect to database and get cursor
 try:
@@ -52,11 +57,22 @@ cur = conn.cursor()
 
 sql = """
 SELECT rates.shop_id, count(*) as sfreq, avg(to_number(rates.cost_time,'999')), shops.wgs_lat, shops.wgs_lon
-FROM postgres.baidu_takeout_temporal as rates
-LEFT JOIN baidu_takeout_shops as shops ON shops.shop_id = rates.shop_id 
+FROM postgres.baidu_takeout_rating_ex as rates
+LEFT JOIN baidu_takeout_shops_extend as shops ON shops.shop_id = rates.shop_id 
 WHERE rates.pass_uid = %(user_id)s
 GROUP BY rates.shop_id, shops.wgs_lat, shops.wgs_lon
 ORDER BY sfreq;
+"""
+
+sql_user_group = """
+SELECT rates.shop_id, rates.sfrom, rates.arrive_time, rates.cost_time, rates.score, rates.service_score, rates.dish_score, 
+shops.takeout_price, shops.takeout_cost, shops.average_score,shops.wgs_lat, shops.wgs_lon
+FROM postgres.baidu_takeout_rating as rates
+LEFT JOIN baidu_takeout_shops as shops ON shops.shop_id = rates.shop_id 
+WHERE rates.pass_uid = %(user_id)s
+AND
+date(rates.arrive_time) between '2016-01-01' and '2017-02-28'
+ORDER BY rates.pass_uid;
 """
 
 sql_feature = """
@@ -91,7 +107,7 @@ SELECT
     sum(case when hourOfday = 23 then 1 else 0 end) as h23,
     pass_uid
 FROM
-    baidu_takeout_temporal
+    baidu_takeout_rating_ex
 WHERE pass_uid = %(user_id)s
 GROUP BY 
     shop_id, pass_uid
@@ -100,7 +116,7 @@ ORDER BY shop_id
 
 """Configurations"""
 kms_per_radian = 6371.0088
-epsilon = 3.0 / kms_per_radian
+epsilon = 1.0 / kms_per_radian
 
 feature_columns = ['weekday','saturday','sunday','h00','h01','h02','h03','h04','h05','h06','h07','h08','h09','h10','h11',
 'h12','h13','h14','h15','h16','h17','h18','h19','h20','h21','h22','h23','user_id']
@@ -108,7 +124,7 @@ feature_columns = ['weekday','saturday','sunday','h00','h01','h02','h03','h04','
 #selecting method type: basic dbscan or hybrid method (dbscan + kmeans)
 dbscan = 0
 hybrid = 1#hybrid with auto-determined eps 
-
+meanshift = 0
 def patternDetection(user):
     #get user data, str(user)
     try:    
@@ -116,7 +132,6 @@ def patternDetection(user):
         rows = cur.fetchall() 
         res = np.array(rows)
         shopList = res[:,0]
-        print shopList
     except:
         print "I am not able to query!"
         
@@ -132,26 +147,42 @@ def patternDetection(user):
         n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
     
         #"""plot and save figure"""
-        plotResult(user,labels, X, core_samples_mask, n_clusters, 0)
+        #plotResult(user,labels, X, core_samples_mask, n_clusters, 0)
+        
+        """extract pattern features"""
+        patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
+        
+        
+    if meanshift == 1:
+        #detect locations
+        X = np.float64(res[:,3:5])
+        ms = MeanShift().fit(np.radians(X))
+        labels = ms.labels_
+        # Number of clusters in labels, ignoring noise if present.
+        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+    
+        #"""plot and save figure"""
+        plotResultBasic(user,labels, X, n_clusters)
         
         """extract pattern features"""
         #patternFeature(user, shopList, labels, core_samples_mask, n_clusters)
         
     if hybrid ==1:
-        nk = 3  
-        epsPercentile = 95      
+    
         try:
             #detect locations
             X = np.float64(res[:,3:5])#spatial attribute
             feaX = np.radians(X)
 
             #auto-determine eps
+            '''
             nbrs = NearestNeighbors(n_neighbors=nk, algorithm='auto',metric='haversine').fit(feaX)
             distances, indices = nbrs.kneighbors(feaX)
             realDistance =  distances*kms_per_radian
             Eps = np.percentile(realDistance[:,nk-1],epsPercentile)
+            '''
             
-            epsilon = Eps / kms_per_radian
+            epsilon = 3.0 / kms_per_radian
     
             db = DBSCAN(eps=epsilon, min_samples=nk, algorithm='ball_tree', metric='haversine').fit(feaX)
             core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
@@ -159,9 +190,6 @@ def patternDetection(user):
             labels = db.labels_
             # Number of clusters in labels, ignoring noise if present.
             n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-            
-            # Clustering results evaluation
-            #metrics.silhouette_score(feaX, labels, metric='haversine')
             
             #kmeans to locate centroid and compute center to center distance as profile attributes
             hubCenters = np.zeros((n_clusters, 4))#lat, lon, center avg delivery time, non-center delivery time
@@ -202,11 +230,10 @@ def patternDetection(user):
                 hubCenters[nc,2] = hubCenter[1]#assign delivery time
                 hubCenters[nc,3] = nonCenter[1]#assign non-center delivery time        
             #"""plot and save figure"""
-            plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters)
+            #plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters)
             patternFeature(user, shopList, labels, core_samples_mask, n_clusters, hubCenters)
         except:
             print 'Not able to run for user: ', user
-    print 'ok'
 
 #extract temporal features for each pattern    
 def patternFeature(user, shopList, labels, core_samples_mask, n_clusters, hubCenters):
@@ -226,7 +253,7 @@ def patternFeature(user, shopList, labels, core_samples_mask, n_clusters, hubCen
         #record shop list for each pattern
         shop_list = shopList[class_member_mask]
         shop_list = np.insert(shop_list,0,user)
-        shop_list = np.insert(shop_list,0,user+'00'+str(nc))
+        shop_list = np.insert(shop_list,0,user+'0'+str(nc))
         nshop = len(shop_list)
         with open(resPath+shopListFile,'a') as f_handle:
             np.savetxt(f_handle, shop_list.reshape((1,nshop)), delimiter=',',fmt='%s')
@@ -243,7 +270,7 @@ def patternFeature(user, shopList, labels, core_samples_mask, n_clusters, hubCen
         with open(resPath+patternFile,'a') as f_handle:
             np.savetxt(f_handle, pattern_feature.reshape((1,nfea)), delimiter=',')
             #np.savetxt(f_handle, pattern, delimiter=',')
-    print 'Come on!'
+    #print 'Come on!'
     
 def patternClustering(pattern):
     #read in features from database for all patterns and cluster
@@ -299,19 +326,61 @@ def plotResult(user,labels, X, core_samples_mask, n_clusters, hubCenters):
     plt.savefig(Outpath+user+'_dbscan.png',bbox_inches='tight',dpi=80)
     plt.close()
     
+def plotResultBasic(user,labels, X, n_clusters):
+    # Black removed and is used for noise instead.
+    fig, ax = plt.subplots(figsize=(4,8))
+    m = Basemap(resolution=None, # c, l, i, h, f or None
+            projection='merc',
+            lat_0=39.905960083, lon_0=116.391242981,
+            llcrnrlon=116.185913, llcrnrlat= 39.754713, urcrnrlon=116.552582, urcrnrlat=40.027614)
+    msize = 5
+    #m.drawmapboundary(fill_color='#46bcec')
+    #m.fillcontinents(color='#f2f2f2',lake_color='#46bcec')
+    #m.drawcoastlines()
+    #m.readshapefile(path+'roads', 'bjroads')
+    
+    x, y = m(X[:,1], X[:,0])
+
+    #m.plot(x, y, 'o', markersize=size, color='#f45642', alpha=0.8)
+    
+    unique_labels = set(labels)
+    colors = plt.cm.Spectral(np.linspace(0, 1, len(unique_labels)))
+    for k, col in zip(unique_labels, colors):
+        if k == -1:
+            # Black used for noise.
+            col = 'k'
+    
+        class_member_mask = (labels == k)
+    
+        xy = X[class_member_mask]
+        x, y = m(xy[:,1], xy[:,0])
+        m.plot(x,y, 'o', markerfacecolor=col,
+                markeredgecolor='k', markersize=msize)
+    
+        xy = X[class_member_mask]
+        x, y = m(xy[:,1], xy[:,0])
+        m.plot(x,y, '^', markerfacecolor=col,
+                markeredgecolor='k', markersize=msize)
+    
+    plt.title('Estimated number of clusters: %d' % n_clusters)
+    #plt.show()
+    
+    plt.savefig(Outpath+user+'_meanshift.png',bbox_inches='tight',dpi=80)
+    plt.close()
+    
 if __name__ == '__main__':
         
     print 'Running pattern...'
     #users = pd.read_excel(path+'new_dbscan_test_users_0430.xlsx'); 
-    users = pd.read_csv(path+'baidu_user34.csv');
+    users = pd.read_csv(path+'baidu_user45_extend.csv');
     userList = users['pass_uid'].tolist()
     userList = map(str, userList)#seems only string list works for pool map
 
     #profiling 1
     start = time.time()
-    #patternDetection('116334310')
-    pool = mp.Pool(4)
-    results = pool.map(patternDetection, userList)
+    patternDetection('2030904815')
+    #pool = mp.Pool(3)
+    #results = pool.map(patternDetection, userList)
     
     end = time.time()
     runtime = end - start
