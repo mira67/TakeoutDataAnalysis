@@ -427,7 +427,7 @@ def plotResultBasic(user,labels, X, n_clusters,cluster_centers):
     plt.savefig(Outpath+user+'_meanshift_basic.png',bbox_inches='tight',dpi=200)
     #plt.close()
     
-if __name__ == '__main__':
+def main():
     print('Running pattern...')
     #users = pd.read_excel(path+'hub_detection_test_0703.xlsx'); 
     users = pd.read_csv(path+'baidu_user34.csv');
@@ -437,9 +437,13 @@ if __name__ == '__main__':
     #profiling 1
     start = time.time()
     #patternDetection('1191278995')
-    pool = mp.Pool(3)
-    results = pool.map(patternDetection, userList)
+    with mp.Pool(3) as pool:
+        results = pool.map(patternDetection, userList)
     end = time.time()
     runtime = end - start
     msg = "Pattern Detection Multi-Processing Took {time} seconds to complete"
-    print(msg.format(time=runtime))    
+    print(msg.format(time=runtime)) 
+    
+if __name__ == "__main__":
+    # execute only if run as a script
+    main()
