@@ -152,44 +152,47 @@ def patternDetection(user):
         
         
     if meanshift == 1:
-        #detect locations
-        X = np.float64(res[:,3:5])
-        X_radians = np.radians(X)
-        
-        X_dt = np.float64(res[:,2])
-        dt_size = X_dt.size
-        X_dt = X_dt.reshape((dt_size,1))
-        
-        #bandwidth = estimate_bandwidth(X_radians, quantile=0.2)
-        bandwidth = 0.00047088304#=3km,0.00031392202
-        ms = MeanShift(bandwidth=bandwidth, bin_seeding=True, cluster_all = False, kernel='takeout', gamma=1.0, computed_weights = True, weights=X_dt,n_jobs =1)
-        ms.fit(X_radians)
-
-        labels = ms.labels_
-        
-        large_labels = labels[np.where(labels>-1)]
-        
-        unique, counts = np.unique(large_labels, return_counts=True)
-        
-        ind, = np.where(counts==1)
-        
-        cluster_centers = np.degrees(ms.cluster_centers_)
-        
-        if ind.size > 0:
-            cluster_centers = np.delete(cluster_centers,ind,axis=0)
-            for lid in ind:
-                labels[labels == unique[lid]] = -1
-        
-        print(cluster_centers)
-        
-        # Number of clusters in labels, ignoring noise if present.
-        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+        try:
+            #detect locations
+            X = np.float64(res[:,3:5])
+            X_radians = np.radians(X)
+            
+            X_dt = np.float64(res[:,2])
+            dt_size = X_dt.size
+            X_dt = X_dt.reshape((dt_size,1))
+            
+            #bandwidth = estimate_bandwidth(X_radians, quantile=0.2)
+            bandwidth = 0.00047088304#=3km,0.00031392202
+            ms = MeanShift(bandwidth=bandwidth, bin_seeding=True, cluster_all = False, kernel='takeout', gamma=1.0, computed_weights = True, weights=X_dt,n_jobs =1)
+            ms.fit(X_radians)
     
-        #"""plot and save figure"""
-        #plotResultBasic(user,labels, X, n_clusters,cluster_centers)
+            labels = ms.labels_
+            
+            large_labels = labels[np.where(labels>-1)]
+            
+            unique, counts = np.unique(large_labels, return_counts=True)
+            
+            ind, = np.where(counts==1)
+            
+            cluster_centers = np.degrees(ms.cluster_centers_)
+            
+            if ind.size > 0:
+                cluster_centers = np.delete(cluster_centers,ind,axis=0)
+                for lid in ind:
+                    labels[labels == unique[lid]] = -1
+            
+            print(cluster_centers)
+            
+            # Number of clusters in labels, ignoring noise if present.
+            n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
         
-        """extract pattern features"""
-        patternFeatureUpdate(user, shopList, labels, n_clusters,cluster_centers)
+            #"""plot and save figure"""
+            #plotResultBasic(user,labels, X, n_clusters,cluster_centers)
+            
+            """extract pattern features"""
+            patternFeatureUpdate(user, shopList, labels, n_clusters,cluster_centers)
+        except:
+            print("Not able to run for user: ", user)
         
     if hybrid ==1:
     
