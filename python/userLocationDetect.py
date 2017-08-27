@@ -54,8 +54,8 @@ cur = conn.cursor()
 
 sql = """
 SELECT rates.shop_id, count(*) as sfreq, avg(to_number(rates.cost_time,'999')), shops.wgs_lat, shops.wgs_lon
-FROM postgres.baidu_takeout_temporal as rates
-LEFT JOIN baidu_takeout_shops as shops ON shops.shop_id = rates.shop_id 
+FROM postgres.baidu_takeout_rating_ex as rates
+LEFT JOIN baidu_takeout_shops_extend as shops ON shops.shop_id = rates.shop_id 
 WHERE rates.pass_uid = %(user_id)s
 GROUP BY rates.shop_id, shops.wgs_lat, shops.wgs_lon
 ORDER BY sfreq;
@@ -104,7 +104,7 @@ SELECT
     sum(case when hourOfday = 23 then 1 else 0 end) as h23,
     pass_uid
 FROM
-    baidu_takeout_temporal
+    baidu_takeout_rating_ex
 WHERE pass_uid = %(user_id)s
 GROUP BY 
     shop_id, pass_uid
@@ -433,7 +433,7 @@ def plotResultBasic(user,labels, X, n_clusters,cluster_centers):
 def main():
     print('Running pattern...')
     #users = pd.read_excel(path+'hub_detection_test_0703.xlsx'); 
-    users = pd.read_csv(path+'baidu_user34.csv');
+    users = pd.read_csv(path+'baidu_user45_extend.csv');
     userList = users['pass_uid'].tolist()
     userList = map(str, userList)#seems only string list works for pool map
 
