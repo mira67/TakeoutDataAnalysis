@@ -433,7 +433,7 @@ def plotResultBasic(user,labels, X, n_clusters,cluster_centers):
 def main():
     print('Running pattern...')
     #users = pd.read_excel(path+'hub_detection_test_0703.xlsx'); 
-    users = pd.read_csv(path+'baidu_user45_extend.csv');
+    users = pd.read_csv(path+'baidu_user45_extend.csv')
     userList = users['pass_uid'].tolist()
     userList = map(str, userList)#seems only string list works for pool map
 
