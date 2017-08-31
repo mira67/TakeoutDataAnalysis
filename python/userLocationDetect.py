@@ -36,8 +36,8 @@ from mean_shift_n import MeanShift
 path = 'E:/myprojects/takeout/code/python/'
 resPath = 'E:/myprojects/takeout/results/'
 Outpath = 'E:/myprojects/takeout/results/meanshift_test_0803/'
-patternFile = 'pattern_features_0803_transGIS.csv'
-shopListFile = 'shop_list_0803_tranGIS.csv'
+patternFile = 'pattern_features_ex_0830.csv'
+shopListFile = 'shop_list_ex_0830.csv'
 
 #hybrid parameter
 nk = 2  
@@ -124,7 +124,7 @@ hybrid = 0#hybrid with auto-determined eps
 meanshift = 1
 def patternDetection(user):
     #get user data, str(user)
-    #user = user[:-2]#temporal fix for the format of user id with '.0'
+    user = user[:-2]#temporal fix for the format of user id with '.0'
     try:    
         cur.execute(sql, {'user_id': str(user)})
         rows = cur.fetchall() 
@@ -440,7 +440,7 @@ def main():
     #profiling 1
     start = time.time()
     #patternDetection('1191278995')
-    with mp.Pool(3) as pool:
+    with mp.Pool(2) as pool:
         results = pool.map(patternDetection, userList)
     end = time.time()
     runtime = end - start
