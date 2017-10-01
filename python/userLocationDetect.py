@@ -36,8 +36,8 @@ from mean_shift_n import MeanShift
 path = 'E:/myprojects/takeout/code/python/'
 resPath = 'E:/myprojects/takeout/results/'
 Outpath = 'E:/myprojects/takeout/results/meanshift_test_0803/'
-patternFile = 'pattern_features_ex_0830.csv'
-shopListFile = 'shop_list_ex_0830.csv'
+patternFile = 'pattern_features_ex_0831.csv'
+shopListFile = 'shop_list_ex_0831.csv'
 
 #hybrid parameter
 nk = 2  
@@ -58,7 +58,7 @@ FROM postgres.baidu_takeout_rating_ex as rates
 LEFT JOIN baidu_takeout_shops_extend as shops ON shops.shop_id = rates.shop_id 
 WHERE rates.pass_uid = %(user_id)s
 GROUP BY rates.shop_id, shops.wgs_lat, shops.wgs_lon
-ORDER BY sfreq;
+ORDER BY rates.shop_id;
 """
 
 sql_user_group = """
@@ -181,7 +181,7 @@ def patternDetection(user):
                 for lid in ind:
                     labels[labels == unique[lid]] = -1
             
-            print(cluster_centers)
+            #print(cluster_centers)
             
             # Number of clusters in labels, ignoring noise if present.
             n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
@@ -435,12 +435,13 @@ def main():
     #users = pd.read_excel(path+'hub_detection_test_0703.xlsx'); 
     users = pd.read_csv(path+'baidu_user45_extend.csv')
     userList = users['pass_uid'].tolist()
-    userList = map(str, userList)#seems only string list works for pool map
 
+    userList = map(str, userList)#seems only string list works for pool map
+    
     #profiling 1
     start = time.time()
     #patternDetection('1191278995')
-    with mp.Pool(2) as pool:
+    with mp.Pool(3) as pool:
         results = pool.map(patternDetection, userList)
     end = time.time()
     runtime = end - start
